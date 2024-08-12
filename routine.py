@@ -13,7 +13,7 @@ def connectToDB(): #TODO: Change to real DB.
     return db
 
 def readReactorId(): #TODO: Change! This is a SUPER manual aproach. Can do better.
-    return "66b021d45fcf0d4c55f34caa"
+    return "66ba51c90b8d929c809d0c1e"
 
 def checkActive(reactorId, db): #TODO: Explore new alternatives. Communication through DB is kinda bad.
 
@@ -119,7 +119,9 @@ def startRun(reactorId, db):
     query = {"_id": ObjectId(reactorId)}
     update = {"$push": {"runs": _id.inserted_id}, "$set": {"activeRun": _id.inserted_id}}
 
-    reactors.update_one(query, update)
+    x = reactors.update_one(query, update)
+
+    print(x)
 
     return _id.inserted_id
 
@@ -151,12 +153,12 @@ def callAction(funcName, varList, db, mode):
     func = getattr(allCompFunctions, thisFunction['name'])
 
     if (mode == "start"):
-        func(varList)
+        ret = func(varList)
     else:
         endVars = thisFunction["endVars"]
-        func(endVars)
+        ret = func(endVars)
 
-    return
+    return ret
     
 def logEventChange(name, mode, sec, db, activeRunId):
     runs = db["runs"]
@@ -201,7 +203,25 @@ def checkPause(reactorId, db): #TODO: Change this just like checkActive
     else:
         return False
 
+def isRegularCall(action, db):
+
+    sensors = db["sensors"]
+    actuators = db["actuators"]
+    componentsmodels = db["componentsmodels"]
+
+    if (action["type"] == "sensor"):
+        dataBase = sensors
+    else:
+        dataBase = actuators
+
+    component = dataBase.find_one({"_id": ObjectId(action["component"])})
+    model = componentsmodels.find_one({"_id": ObjectId(component["model"])})
+
+    return model["isCallRegular"]
+
 def followRoutine(checkPool, moduloSec, routineDuration, db, activeRunId):
+
+    timeSeries = db["allTimeSeries"]
 
     for node in checkPool:
         event = node[0]
@@ -231,6 +251,17 @@ def followRoutine(checkPool, moduloSec, routineDuration, db, activeRunId):
                 if (action['status'] == "on" and moduloSec == action['start']):
                     logActionChange(action['name'], "start", moduloSec, event['name'], db, activeRunId)
                     callAction(action["function"], action["varList"], db, "start")
+
+    for node in checkPool:
+        event = node[0]
+        actions = node[1]
+
+        if (not (event['status'] == "suspended")): 
+            for action in actions:
+                if (action['status'] == "on" and moduloSec > action['start'] and moduloSec < action['end']):
+                    if (isRegularCall(action, db)):
+                        readValue = callAction(action["function"], action["varList"], db, "start")
+                        timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue, "run": activeRunId})
 
     return moduloSec
 
@@ -280,7 +311,7 @@ def main():
 
                 moduloSec = followRoutine(checkPool, moduloSec, rotuineDuration, db, activeRunId)
 
-                time.sleep(1) #TODO: Change! Routine functions can desincronize everything.
+                time.sleep(1)
                 moduloSec += 1
 
 main()

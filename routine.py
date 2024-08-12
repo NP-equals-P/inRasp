@@ -2,6 +2,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 import time
 from datetime import datetime
+import allCompFunctions
 from allCompFunctions import *
 
 def connectToDB(): #TODO: Change to real DB.
@@ -12,7 +13,7 @@ def connectToDB(): #TODO: Change to real DB.
     return db
 
 def readReactorId(): #TODO: Change! This is a SUPER manual aproach. Can do better.
-    return "66a29f2ba0652cc21393044f"
+    return "66b021d45fcf0d4c55f34caa"
 
 def checkActive(reactorId, db): #TODO: Explore new alternatives. Communication through DB is kinda bad.
 
@@ -32,7 +33,7 @@ def getActiveRoutInfo(reactorId, db):
     eventsDB = db["events"]
     actionsDB = db["actions"]
 
-    info = []
+    normalInfo = []
 
     thisReactor = reactorsDB.find_one({"_id": ObjectId(reactorId)})
 
@@ -46,9 +47,19 @@ def getActiveRoutInfo(reactorId, db):
             action = actionsDB.find_one({"_id": actionId})
             auxList.append(action)
         
-        info.append((event, auxList))
+        normalInfo.append((event, auxList))
 
-    return info
+    for eventId in activeRoutine["esporadicEvents"]:
+        event = eventsDB.find_one({"_id": eventId})
+        auxList = []
+
+        for actionId in event["actions"]:
+            action = actionsDB.find_one({"_id": actionId})
+            auxList.append(action)
+        
+        normalInfo.append((event, auxList)) 
+
+    return normalInfo
 
 def calcRoutDuration(info):
 
@@ -56,7 +67,7 @@ def calcRoutDuration(info):
 
     for node in info:
 
-        eventDuration = int(node[0]["start"]) + int(node[0]["duration"])
+        eventDuration = int(node[0]["end"])
 
         if (eventDuration > max and node[0]["type"] == "normal"): #TODO: Change this after server fix.
 
@@ -73,86 +84,110 @@ def fillPool(info, rotuineDuration):
         event = node[0]
         actionList = node[1] #Actions of node[0] event.
 
-        print(event["duration"], event["start"])
-
-        if (event['type'] == "esporadic"): #TODO: Put this whole If statement in server side.
+        if (event['type'] == "esporadic"):
             
-            event["callType"] = "esporadic"
+            event["status"] = "suspended"
+
+            for action in actionList:
+                action["status"] = 'suspended'
+        elif (event["start"] == 0 and event["end"] == rotuineDuration):
+            
+            event["status"] = "permanent"
 
             for action in actionList:
 
-                action["absoluteStart"] = action["start"] + event["start"]
-                action["absoluteEnd"] = action["absoluteStart"] + action["duration"]
-                action["callType"] = 'esporadic'
-                actionPool.append(action)
-        elif (event["start"] == 0 and event["duration"] == rotuineDuration):
-            
-            event["callType"] = "permanent"
-
-            for action in actionList:
-
-                if (action["start"] == 0 and action["duration"] == rotuineDuration):
-                    
-                    action["callType"] = "permanent"
+                if (action["start"] == 0 and action["end"] == rotuineDuration):
+                    action["status"] = "permanent"
                 else:
-                    action["callType"] = 'normal'
-                    action["absoluteStart"] = action["start"] + event["start"]
-                    action["absoluteEnd"] = action["absoluteStart"] + action["duration"]
-
-                actionPool.append(action)
+                    action["status"] = 'on'
         else:
-            event["callType"] = "normal"
+            event["status"] = "on"
 
             for action in actionList:
+                action["status"] = "on"
 
-                action["absoluteStart"] = action["start"] + event["start"]
-                action["absoluteEnd"] = action["absoluteStart"] + action["duration"]
-                action["callType"] = "normal"
-                actionPool.append(action)
+    return info
 
-        eventPool.append(event)
+def startRun(reactorId, db):
+    reactors = db["reactors"]
+    runs = db["runs"]
 
-    return (eventPool, actionPool)
+    newRun = {"log": []}
 
-def startRoutine(checkPool):
+    _id = runs.insert_one(newRun)
 
-    events = checkPool[0]
-    actions = checkPool[1]
+    query = {"_id": ObjectId(reactorId)}
+    update = {"$push": {"runs": _id.inserted_id}, "$set": {"activeRun": _id.inserted_id}}
 
-    for event in events:
-        
-        if (event['callType'] == "permanent"):
+    reactors.update_one(query, update)
 
-            logEventChange(event['name'], "start", 0)
+    return _id.inserted_id
 
-    for action in actions:
+def startRoutine(checkPool, db, activeRunId):
 
-        if (action['callType'] == "permanent"):
+    for node in checkPool:
 
-            # callAction() TODO
+        event = node[0]
+        actions = node[1]
+            
+        if (event['status'] == "permanent"):
 
-            logActionChange(action['name'], "start", 0)
+            logEventChange(event['name'], "start", 0, db, activeRunId)
 
-def callAction(): #TODO: Call action function.
+        for action in actions:
+
+            if (action['status'] == "permanent"):
+
+                # callAction() TODO
+
+                logActionChange(action['name'], "start", 0, event['name'], db, activeRunId)
+
+def callAction(funcName, varList, db, mode):
+
+    functionsDB = db["functions"]
+
+    thisFunction = functionsDB.find_one({"_id": funcName})
+
+    func = getattr(allCompFunctions, thisFunction['name'])
+
+    if (mode == "start"):
+        func(varList)
+    else:
+        endVars = thisFunction["endVars"]
+        func(endVars)
+
     return
     
-def logEventChange(name, mode, sec): #TODO: True log in DB. Also log real time.
+def logEventChange(name, mode, sec, db, activeRunId):
+    runs = db["runs"]
+
+    now = datetime.now()
+    query = {"_id": ObjectId(activeRunId)}
 
     match mode:
         case "start":
-            print(f"[Event] {name} started. (In routine: {sec} / real time:)")
+            update = {"$push": {"log": f"[Event] {name} started. [Routine time: {sec} / real time: {now.strftime('%m/%d/%Y, %H:%M:%S')}]"}}
+            runs.update_one(query, update)
             return
         case "end":
-            print(f"[Event] {name} ended. (In routine: {sec} / real time:)")
+            update = {"$push": {"log": f"[Event] {name} ended. [Routine time: {sec} / real time: {now.strftime('%m/%d/%Y, %H:%M:%S')}]"}}
+            runs.update_one(query, update)
             return
 
-def logActionChange(name, mode, sec, event): #TODO: True log in DB. Also log real time.
+def logActionChange(name, mode, sec, event, db, activeRunId):
+    runs = db["runs"]
+
+    now = datetime.now()
+    query = {"_id": ObjectId(activeRunId)}
+
     match mode:
         case "start":
-            print(f"[Action] {name} started (From [Event] {event}). [In routine: {sec} / real time:]")
+            update = {"$push": {"log": f"[Action] {name} started (From [Event] {event}). [Routine time: {sec} / real time: {now.strftime('%m/%d/%Y, %H:%M:%S')}]"}}
+            runs.update_one(query, update)
             return
         case "end":
-            print(f"[Action] {name} ended (From [Event] {event}). [In routine: {sec} / real time:]")
+            update = {"$push": {"log": f"[Action] {name} ended (From [Event] {event}). [Routine time: {sec} / real time: {now.strftime('%m/%d/%Y, %H:%M:%S')}]"}}
+            runs.update_one(query, update)
             return
 
 def checkPause(reactorId, db): #TODO: Change this just like checkActive
@@ -166,6 +201,38 @@ def checkPause(reactorId, db): #TODO: Change this just like checkActive
     else:
         return False
 
+def followRoutine(checkPool, moduloSec, routineDuration, db, activeRunId):
+
+    for node in checkPool:
+        event = node[0]
+        actions = node[1]
+
+        if (not (event['status'] == "suspended")): 
+            if (event['status'] == "on" and moduloSec == event['end']):
+                logEventChange(event['name'], "end", moduloSec, db, activeRunId)
+
+            for action in actions:
+                if (action['status'] == "on" and moduloSec == action['end']):
+                    logActionChange(action['name'], "end", moduloSec, event['name'], db, activeRunId)
+                    callAction(action["function"], action["varList"], db, "end")
+
+    if (moduloSec == routineDuration):
+        moduloSec = 0
+
+    for node in checkPool:
+        event = node[0]
+        actions = node[1]
+
+        if (not (event['status'] == "suspended")): 
+            if (event['status'] == "on" and moduloSec == event['start']):
+                logEventChange(event['name'], "start", moduloSec, db, activeRunId)
+
+            for action in actions:
+                if (action['status'] == "on" and moduloSec == action['start']):
+                    logActionChange(action['name'], "start", moduloSec, event['name'], db, activeRunId)
+                    callAction(action["function"], action["varList"], db, "start")
+
+    return moduloSec
 
 
 
@@ -175,8 +242,6 @@ def checkPause(reactorId, db): #TODO: Change this just like checkActive
 def checkEsporadics(info, espCheckPool):
     return
 
-def followRoutine(checkPool, espCheckPool, moduloSec):
-    return
 
 
 
@@ -199,21 +264,21 @@ def main():
 
             if (firstRoutCycle):
 
-                activeRoutInfo = getActiveRoutInfo(thisReactorId, db) #Only updates routine info after activation.
-                rotuineDuration = calcRoutDuration(activeRoutInfo)
-                checkPool = fillPool(activeRoutInfo, rotuineDuration)
+                eventsList = getActiveRoutInfo(thisReactorId, db) #Only updates routine info after activation.
+                rotuineDuration = calcRoutDuration(eventsList)
+                checkPool = fillPool(eventsList, rotuineDuration)
 
-                startRoutine(checkPool)
+                activeRunId = startRun(thisReactorId, db)
+
+                startRoutine(checkPool, db, activeRunId)
 
                 firstRoutCycle = False
 
             while (not checkPause(thisReactorId, db) and checkActive(thisReactorId, db)):
 
-                checkEsporadics(checkPool)
+                # checkEsporadics(checkPool)
 
-                # moduloSec = followRoutine(checkPool, moduloSec)
-
-                print() #TODO: TEST ONLY. REMOVE THIS
+                moduloSec = followRoutine(checkPool, moduloSec, rotuineDuration, db, activeRunId)
 
                 time.sleep(1) #TODO: Change! Routine functions can desincronize everything.
                 moduloSec += 1

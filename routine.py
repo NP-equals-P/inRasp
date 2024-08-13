@@ -121,8 +121,6 @@ def startRun(reactorId, db):
 
     x = reactors.update_one(query, update)
 
-    print(x)
-
     return _id.inserted_id
 
 def startRoutine(checkPool, db, activeRunId):
@@ -221,35 +219,38 @@ def isRegularCall(action, db):
 
 def followRoutine(checkPool, moduloSec, routineDuration, db, activeRunId):
 
-    timeSeries = db["allTimeSeries"]
+    # timeSeries = db["allTimeSeries"]
+
+    timePassed = (datetime.now() - moduloSec).seconds
 
     for node in checkPool:
         event = node[0]
         actions = node[1]
 
         if (not (event['status'] == "suspended")): 
-            if (event['status'] == "on" and moduloSec == event['end']):
-                logEventChange(event['name'], "end", moduloSec, db, activeRunId)
+            if (event['status'] == "on" and timePassed == event['end']):
+                logEventChange(event['name'], "end", timePassed, db, activeRunId)
 
             for action in actions:
-                if (action['status'] == "on" and moduloSec == action['end']):
-                    logActionChange(action['name'], "end", moduloSec, event['name'], db, activeRunId)
+                if (action['status'] == "on" and timePassed == action['end']):
+                    logActionChange(action['name'], "end", timePassed, event['name'], db, activeRunId)
                     callAction(action["function"], action["varList"], db, "end")
 
-    if (moduloSec == routineDuration):
-        moduloSec = 0
+    if (timePassed >= routineDuration):
+        moduloSec = datetime.now()
+        timePassed = 0
 
     for node in checkPool:
         event = node[0]
         actions = node[1]
 
         if (not (event['status'] == "suspended")): 
-            if (event['status'] == "on" and moduloSec == event['start']):
-                logEventChange(event['name'], "start", moduloSec, db, activeRunId)
+            if (event['status'] == "on" and timePassed == event['start']):
+                logEventChange(event['name'], "start", timePassed, db, activeRunId)
 
             for action in actions:
-                if (action['status'] == "on" and moduloSec == action['start']):
-                    logActionChange(action['name'], "start", moduloSec, event['name'], db, activeRunId)
+                if (action['status'] == "on" and timePassed == action['start']):
+                    logActionChange(action['name'], "start", timePassed, event['name'], db, activeRunId)
                     callAction(action["function"], action["varList"], db, "start")
 
     for node in checkPool:
@@ -258,10 +259,10 @@ def followRoutine(checkPool, moduloSec, routineDuration, db, activeRunId):
 
         if (not (event['status'] == "suspended")): 
             for action in actions:
-                if (action['status'] == "on" and moduloSec > action['start'] and moduloSec < action['end']):
+                if (action['status'] == "on" and timePassed > action['start'] and timePassed < action['end']):
                     if (isRegularCall(action, db)):
                         readValue = callAction(action["function"], action["varList"], db, "start")
-                        timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue, "run": activeRunId})
+                        # timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue, "run": activeRunId})
 
     return moduloSec
 
@@ -287,7 +288,7 @@ def main():
     while (True): #Once started, runs forever until Rasp is turned off or the app is shut down.
 
         firstRoutCycle = True
-        moduloSec = 0 #Seconds in routine modulo routine's full duration.
+        moduloSec = datetime.now() #TODO: Change this -> #Seconds in routine modulo routine's full duration.
 
         thisReactorId = readReactorId() #Every unactive cycle reads possible new reac Id.
 
@@ -312,6 +313,5 @@ def main():
                 moduloSec = followRoutine(checkPool, moduloSec, rotuineDuration, db, activeRunId)
 
                 time.sleep(1)
-                moduloSec += 1
 
 main()

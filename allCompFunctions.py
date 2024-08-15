@@ -4,5 +4,4 @@ def vanilla(varList):
 
 def test(varList):
     print(varList)
-
     return 1

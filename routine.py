@@ -121,6 +121,8 @@ def startRun(reactorId, db):
 
     x = reactors.update_one(query, update)
 
+    db.create_collection("z_runTS[" + str(_id.inserted_id) + "]", timeseries={ 'timeField': 'whenTaken', 'metaField': "sensorId"})
+
     return _id.inserted_id
 
 def startRoutine(checkPool, db, activeRunId):
@@ -142,11 +144,11 @@ def startRoutine(checkPool, db, activeRunId):
 
                 logActionChange(action['name'], "start", 0, event['name'], db, activeRunId)
 
-def callAction(funcName, varList, db, mode):
+def callAction(funcId, varList, db, mode):
 
     functionsDB = db["functions"]
 
-    thisFunction = functionsDB.find_one({"_id": funcName})
+    thisFunction = functionsDB.find_one({"_id": funcId})
 
     func = getattr(allCompFunctions, thisFunction['name'])
 
@@ -203,23 +205,15 @@ def checkPause(reactorId, db): #TODO: Change this just like checkActive
 
 def isRegularCall(action, db):
 
-    sensors = db["sensors"]
-    actuators = db["actuators"]
-    componentsmodels = db["componentsmodels"]
+    functions = db["functions"]
 
-    if (action["type"] == "sensor"):
-        dataBase = sensors
-    else:
-        dataBase = actuators
+    function = functions.find_one({"_id": ObjectId(action["function"])})
 
-    component = dataBase.find_one({"_id": ObjectId(action["component"])})
-    model = componentsmodels.find_one({"_id": ObjectId(component["model"])})
-
-    return model["isCallRegular"]
+    return function["isRegular"]
 
 def followRoutine(checkPool, moduloSec, routineDuration, db, activeRunId):
 
-    # timeSeries = db["allTimeSeries"]
+    timeSeries = db["z_runTS[" + str(activeRunId) + "]"]
 
     timePassed = (datetime.now() - moduloSec).seconds
 
@@ -259,10 +253,10 @@ def followRoutine(checkPool, moduloSec, routineDuration, db, activeRunId):
 
         if (not (event['status'] == "suspended")): 
             for action in actions:
-                if (action['status'] == "on" and timePassed > action['start'] and timePassed < action['end']):
+                if (timePassed > action['start'] and timePassed < action['end']):
                     if (isRegularCall(action, db)):
                         readValue = callAction(action["function"], action["varList"], db, "start")
-                        # timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue, "run": activeRunId})
+                        timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue})
 
     return moduloSec
 

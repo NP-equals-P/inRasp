@@ -256,7 +256,8 @@ def followRoutine(checkPool, moduloSec, routineDuration, db, activeRunId):
                 if (timePassed > action['start'] and timePassed < action['end']):
                     if (isRegularCall(action, db)):
                         readValue = callAction(action["function"], action["varList"], db, "start")
-                        timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue})
+                        if (action["type"] == "sensor"):
+                            timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue})
 
     return moduloSec
 

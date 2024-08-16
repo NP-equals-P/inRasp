@@ -1,7 +1,9 @@
+import random
+
 def vanilla(varList):
     print("Ice cream!")
-    return
+    return random.randint(0, 10)
 
 def test(varList):
     print(varList)
-    return 1
+    return random.randint(0, 10)

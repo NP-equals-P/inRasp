@@ -13,7 +13,7 @@ def connectToDB(): #TODO: Change to real DB.
     return db
 
 def readReactorId(): #TODO: Change! This is a SUPER manual aproach. Can do better.
-    return "66ba51c90b8d929c809d0c1e"
+    return "66c4c37fbcae9fbc2df589cf"
 
 def checkActive(reactorId, db): #TODO: Explore new alternatives. Communication through DB is kinda bad.
 
@@ -112,7 +112,7 @@ def startRun(reactorId, db):
     reactors = db["reactors"]
     runs = db["runs"]
 
-    newRun = {"log": []}
+    newRun = {"log": [], "startDate": datetime.now().strftime('%m/%d/%Y, %H:%M:%S')}
 
     _id = runs.insert_one(newRun)
 

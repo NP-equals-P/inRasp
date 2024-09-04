@@ -15,7 +15,7 @@ def connectToDB(): #TODO: Change to real DB.
 def readReactorId(): #TODO: Change! This is a SUPER manual aproach. Can do better.
     return "66c4c37fbcae9fbc2df589cf"
 
-def checkActive(reactorId, db): #TODO: Explore new alternatives. Communication through DB is kinda bad.
+def checkActive(reactorId, db):
 
     reactorsDB = db["reactors"]
 
@@ -125,6 +125,58 @@ def startRun(reactorId, db):
 
     return _id.inserted_id
 
+def logReacActivation(db, activeRunId, thisReactorId):
+    runs = db["runs"]
+    reactorsDB = db["reactors"]
+
+    thisReactor = reactorsDB.find_one({"_id": ObjectId(thisReactorId)})
+
+    now = datetime.now()
+    query = {"_id": ObjectId(activeRunId)}
+
+    update = {"$push": {"log": f"[Reactor] {thisReactor['name']} activated. [Real time: {now.strftime('%m/%d/%Y, %H:%M:%S')}]"}}
+    runs.update_one(query, update)
+    return
+
+def logReacDesactivation(db, activeRunId, thisReactorId, sec):
+    runs = db["runs"]
+    reactorsDB = db["reactors"]
+
+    thisReactor = reactorsDB.find_one({"_id": ObjectId(thisReactorId)})
+
+    now = datetime.now()
+    query = {"_id": ObjectId(activeRunId)}
+
+    update = {"$push": {"log": f"[Reactor] {thisReactor['name']} desactivated. [Routine time: {sec} / real time: {now.strftime('%m/%d/%Y, %H:%M:%S')}]"}}
+    runs.update_one(query, update)
+    return
+
+def logReacPause(db, activeRunId, thisReactorId, sec):
+    runs = db["runs"]
+    reactorsDB = db["reactors"]
+
+    thisReactor = reactorsDB.find_one({"_id": ObjectId(thisReactorId)})
+
+    now = datetime.now()
+    query = {"_id": ObjectId(activeRunId)}
+
+    update = {"$push": {"log": f"[Reactor] {thisReactor['name']} paused. [Routine time: {sec} / real time: {now.strftime('%m/%d/%Y, %H:%M:%S')}]"}}
+    runs.update_one(query, update)
+    return
+
+def logReacResume(db, activeRunId, thisReactorId):
+    runs = db["runs"]
+    reactorsDB = db["reactors"]
+
+    thisReactor = reactorsDB.find_one({"_id": ObjectId(thisReactorId)})
+
+    now = datetime.now()
+    query = {"_id": ObjectId(activeRunId)}
+
+    update = {"$push": {"log": f"[Reactor] {thisReactor['name']} resumed. [Real time: {now.strftime('%m/%d/%Y, %H:%M:%S')}]"}}
+    runs.update_one(query, update)
+    return
+
 def startRoutine(checkPool, db, activeRunId):
 
     for node in checkPool:
@@ -192,7 +244,7 @@ def logActionChange(name, mode, sec, event, db, activeRunId):
             runs.update_one(query, update)
             return
 
-def checkPause(reactorId, db): #TODO: Change this just like checkActive
+def checkPause(reactorId, db):
 
     reactorsDB = db["reactors"]
 
@@ -211,11 +263,11 @@ def isRegularCall(action, db):
 
     return function["isRegular"]
 
-def followRoutine(checkPool, moduloSec, routineDuration, db, activeRunId):
+def followRoutine(checkPool, cycleStartTime, routineDuration, db, activeRunId):
 
     timeSeries = db["z_runTS[" + str(activeRunId) + "]"]
 
-    timePassed = (datetime.now() - moduloSec).seconds
+    timePassed = (datetime.now() - cycleStartTime).seconds
 
     for node in checkPool:
         event = node[0]
@@ -231,7 +283,7 @@ def followRoutine(checkPool, moduloSec, routineDuration, db, activeRunId):
                     callAction(action["function"], action["varList"], db, "end")
 
     if (timePassed >= routineDuration):
-        moduloSec = datetime.now()
+        cycleStartTime = datetime.now()
         timePassed = 0
 
     for node in checkPool:
@@ -259,7 +311,7 @@ def followRoutine(checkPool, moduloSec, routineDuration, db, activeRunId):
                         if (action["type"] == "sensor"):
                             timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue})
 
-    return moduloSec
+    return cycleStartTime, timePassed
 
 
 
@@ -283,7 +335,10 @@ def main():
     while (True): #Once started, runs forever until Rasp is turned off or the app is shut down.
 
         firstRoutCycle = True
-        moduloSec = datetime.now() #TODO: Change this -> #Seconds in routine modulo routine's full duration.
+        desactivationFlag = False
+        pauseFlag = False
+        cycleRelativeTime = 0 #Counts whole seconds after last routine cycle start.
+        cycleStartTime = datetime.now() #Last routine cycle start time.
 
         thisReactorId = readReactorId() #Every unactive cycle reads possible new reac Id.
 
@@ -297,16 +352,32 @@ def main():
 
                 activeRunId = startRun(thisReactorId, db)
 
+                logReacActivation(db, activeRunId, thisReactorId) #Logs reactor activation.
+                desactivationFlag = True
+
                 startRoutine(checkPool, db, activeRunId)
 
                 firstRoutCycle = False
 
             while (not checkPause(thisReactorId, db) and checkActive(thisReactorId, db)):
 
+                if (pauseFlag): #Logs reactor resume if it happened.
+                    pauseFlag = False
+                    logReacResume(db, activeRunId, thisReactorId)
+
                 # checkEsporadics(checkPool)
 
-                moduloSec = followRoutine(checkPool, moduloSec, rotuineDuration, db, activeRunId)
+                cycleStartTime, cycleRelativeTime = followRoutine(checkPool, cycleStartTime, rotuineDuration, db, activeRunId)
 
                 time.sleep(1)
+
+            if (checkPause(thisReactorId, db) and not (pauseFlag)): #Logs reactor pause if it happened.
+                pauseFlag = True
+                logReacPause(db, activeRunId, thisReactorId, cycleRelativeTime)
+
+        if (desactivationFlag): #Logs reactor desactivation if it happened.
+            desactivationFlag = False
+            logReacDesactivation(db, activeRunId, thisReactorId, cycleRelativeTime)
+
 
 main()

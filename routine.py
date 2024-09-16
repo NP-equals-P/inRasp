@@ -5,6 +5,11 @@ from datetime import datetime
 import allCompFunctions
 from allCompFunctions import *
 
+ser = serial.Serial(
+port='COM7',\
+baudrate=9600,\
+    timeout=0)
+
 def connectToDB(): #TODO: Change to real DB.
     urlString = "mongodb+srv://ito:senhaito@cluster0.2muvzud.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0" #TODO: Make it safe! 
     client = MongoClient(urlString)
@@ -13,7 +18,7 @@ def connectToDB(): #TODO: Change to real DB.
     return db
 
 def readReactorId(): #TODO: Change! This is a SUPER manual aproach. Can do better.
-    return "66c4c37fbcae9fbc2df589cf"
+    return "66df3a313448c96e40c0c8bf"
 
 def checkActive(reactorId, db):
 
@@ -205,7 +210,7 @@ def callAction(funcId, varList, db, mode):
     func = getattr(allCompFunctions, thisFunction['name'])
 
     if (mode == "start"):
-        ret = func(varList)
+        ret = func(varList, ser)
     else:
         endVars = thisFunction["endVars"]
         ret = func(endVars)
@@ -309,7 +314,14 @@ def followRoutine(checkPool, cycleStartTime, routineDuration, db, activeRunId):
                     if (isRegularCall(action, db) and timePassed%action["frequency"] == 0):
                         readValue = callAction(action["function"], action["varList"], db, "start")
                         if (action["type"] == "sensor"):
-                            timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue})
+                            if (readValue != None):
+                                timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue})
+                            else:
+                                query = timeSeries.find({}, {"sort": {"timestamp": -1}, "limit": 1})
+                                for doc in query:
+                                    resolvedDoc = timeSeries.find_one({"_id": doc['_id']})
+                                    print(resolvedDoc["value"])
+                                    timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": resolvedDoc["value"]})
 
     return cycleStartTime, timePassed
 

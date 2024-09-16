@@ -306,7 +306,7 @@ def followRoutine(checkPool, cycleStartTime, routineDuration, db, activeRunId):
         if (not (event['status'] == "suspended")): 
             for action in actions:
                 if (timePassed > action['start'] and timePassed < action['end']):
-                    if (isRegularCall(action, db)):
+                    if (isRegularCall(action, db) and timePassed%action["frequency"] == 0):
                         readValue = callAction(action["function"], action["varList"], db, "start")
                         if (action["type"] == "sensor"):
                             timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue})

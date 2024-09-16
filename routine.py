@@ -311,17 +311,18 @@ def followRoutine(checkPool, cycleStartTime, routineDuration, db, activeRunId):
         if (not (event['status'] == "suspended")): 
             for action in actions:
                 if (timePassed > action['start'] and timePassed < action['end']):
-                    if (isRegularCall(action, db) and timePassed%action["frequency"] == 0):
+                    print(timePassed, action["frequency"])
+                    if (isRegularCall(action, db) and timePassed%action["frequency"] == 1):
                         readValue = callAction(action["function"], action["varList"], db, "start")
                         if (action["type"] == "sensor"):
                             if (readValue != None):
                                 timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue})
                             else:
-                                query = timeSeries.find({}, {"sort": {"timestamp": -1}, "limit": 1})
+                                query = timeSeries.find().sort("whenTaken", -1)
                                 for doc in query:
                                     resolvedDoc = timeSeries.find_one({"_id": doc['_id']})
-                                    print(resolvedDoc["value"])
                                     timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": resolvedDoc["value"]})
+                                    break
 
     return cycleStartTime, timePassed
 

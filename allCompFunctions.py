@@ -14,7 +14,14 @@ def readMLimaFlow(varList, ser):
     reading = str(ser.readline())
     readingLen = len(reading)
 
+    count = -5
+    lastReading = ""
+
     if (not readingLen == 3):
-        return float(reading[2:-4])
+        while (reading[count] != "'" and reading[count] != ";"):
+            lastReading = reading[count] + lastReading
+            count -= 1
+
+        return float(lastReading)
     else:
         return None

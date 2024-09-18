@@ -150,6 +150,12 @@ def startRoutine(checkPool, db, activeRunId):
 
                 logActionChange(action['name'], "start", 0, event['name'], db, activeRunId)
 
+def getAllComponents(reactorId, db):
+
+    reactorsDB = db["reactors"]
+    sensorsDB = db["sensors"]
+    actuatorsDB = db["actuators"]
+
 def initializeComponents():
     compDict = dict()
 
@@ -162,6 +168,9 @@ def initializeComponents():
 
     return compDict
 
+def killComponents(compList):
+    compList["test"].close()
+
 def callAction(funcId, varList, db, mode, compDict):
 
     functionsDB = db["functions"]
@@ -170,11 +179,7 @@ def callAction(funcId, varList, db, mode, compDict):
 
     func = getattr(allCompFunctions, thisFunction['name'])
 
-    if (mode == "start"):
-        ret = func(varList, compDict["test"])
-    else:
-        endVars = thisFunction["endVars"]
-        ret = func(endVars)
+    ret = func(varList, compDict, mode)
 
     return ret
     
@@ -252,7 +257,7 @@ def followRoutine(checkPool, cycleStartTime, routineDuration, db, activeRunId, c
                 logActionChange(action['name'], "start", timePassed, event['name'], db, activeRunId)
                 callAction(action["function"], action["varList"], db, "start", compDict)
 
-    for node in checkPool: #???????
+    for node in checkPool: #Checking regular call actions.
         event = node[0]
         actions = node[1]
 
@@ -260,13 +265,13 @@ def followRoutine(checkPool, cycleStartTime, routineDuration, db, activeRunId, c
             if (timePassed > action['start'] and timePassed < action['end']):
                 if (isRegularCall(action, db) and timePassed%action["frequency"] == 1):
 
-                    readValue = callAction(action["function"], action["varList"], db, "start", compDict)
+                    readValue = callAction(action["function"], action["varList"], db, "main", compDict)
                     
                     if (action["type"] == "sensor"):
                         if (readValue != None):
                             timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": readValue})
                         else:
-                            query = timeSeries.find().sort("whenTaken", -1)
+                            query = timeSeries.find({"sensorId": action["component"]}).sort("whenTaken", -1)
                             for doc in query:
                                 resolvedDoc = timeSeries.find_one({"_id": doc['_id']})
                                 timeSeries.insert_one({"whenTaken": datetime.now(), "sensorId": action["component"], "value": resolvedDoc["value"]})
@@ -305,7 +310,8 @@ def main():
 
                 startRoutine(checkPool, db, activeRunId)
 
-                compDict = initializeComponents()
+                componentsList = getAllComponents(thisReactorId, db)
+                compDict = initializeComponents(componentsList)
 
                 firstRoutCycle = False
 
@@ -318,6 +324,7 @@ def main():
         if (desactivationFlag): #Logs reactor desactivation if it happened.
             desactivationFlag = False
             logReactorChange(db, activeRunId, thisReactorId, cycleRelativeTime, "desactivated")
+            killComponents(compDict)
 
 main()
 

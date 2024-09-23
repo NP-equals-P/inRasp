@@ -1,15 +1,48 @@
 import random
 import serial
 
-def other(varList, compDict, mode):
-    print("other")
-    return random.randint(0, 10)
+def dummyIni(iniVars, componentsDict):
+    print("DummyIni")
 
-def test(varList):
-    print("test")
-    return random.randint(0, 10)
+    thisComp = "DummyData"
 
-def readMLimaFlow(varList, compDict, mode):
+    componentsDict[iniVars[0]] = thisComp
+
+    return
+
+def randomRead(varList, compDict, mode, compId):
+    if (mode == "start"):
+        print("randomStart!")
+        return 0
+    elif (mode == "end"):
+        print("randomEnd!")
+        return 0
+    else:
+        print("randomRead!")
+        return random.randint(0, 10)
+
+def dummyKill(killVars, componentsDict):
+
+    del componentsDict[killVars[0]]
+
+    print(str(killVars[0]) + " morto!")
+
+    return
+
+# Medidor de Vazão de Gás, MFlow (M Lima Engenharia)
+
+def iniMLimaFlow(iniVars, componentsDict):
+
+    ser = serial.Serial(
+    port=iniVars[1],\
+    baudrate=9600,\
+        timeout=0)
+    
+    componentsDict[iniVars[0]] = ser
+
+    return 0
+
+def readMLimaFlow(varList, compDict, mode, compId):
     
     if (mode == "start"):
         #MLima Flow does not need start function.
@@ -19,7 +52,7 @@ def readMLimaFlow(varList, compDict, mode):
         return None
     else:
 
-        reading = str(compDict["test"].readline())
+        reading = str(compDict[compId].readline())
         readingLen = len(reading)
 
         count = -5
@@ -35,3 +68,11 @@ def readMLimaFlow(varList, compDict, mode):
             return float(lastReading)
         else:
             return None
+
+def killMLimaFlow(killVars, componentsDict):
+
+    componentsDict[killVars[0]].close()
+
+    return
+
+# -------------------------------------------------

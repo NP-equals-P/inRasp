@@ -59,7 +59,7 @@ def getActiveRoutInfo(reactorId, db):
         
         normalInfo.append((event, auxList)) 
 
-    return normalInfo
+    return normalInfo, thisReactor
 
 def calcRoutDuration(info):
 
@@ -150,28 +150,52 @@ def startRoutine(checkPool, db, activeRunId):
 
                 logActionChange(action['name'], "start", 0, event['name'], db, activeRunId)
 
-def getAllComponents(reactorId, db):
+def getAllComponents(reactor, db):
 
-    reactorsDB = db["reactors"]
     sensorsDB = db["sensors"]
     actuatorsDB = db["actuators"]
 
-def initializeComponents():
+    componentsList = []
+
+    for sensorId in reactor["sensors"]:
+        componentsList.append(sensorsDB.find_one({"_id": ObjectId(sensorId)}))
+
+    for actuatorId in reactor["actuators"]:
+        componentsList.append(actuatorsDB.find_one({"_id": ObjectId(actuatorId)}))
+
+    return componentsList
+
+def initializeComponents(componentsList, db):
+
+    componentsModelsDB = db["componentsmodels"]
+
     compDict = dict()
 
-    ser = serial.Serial(
-    port='COM7',\
-    baudrate=9600,\
-        timeout=0)
-    
-    compDict["test"] = ser
+    for component in componentsList:
+        oneModel = componentsModelsDB.find_one({"_id": ObjectId(component["model"])})
+
+        if (oneModel['iniFunction']):
+
+            func = getattr(allCompFunctions, oneModel['iniFunction'])
+
+            ret = func([component["_id"], component["exit"]], compDict)
 
     return compDict
 
-def killComponents(compList):
-    compList["test"].close()
+def killComponents(componentsList, compDict, db):
 
-def callAction(funcId, varList, db, mode, compDict):
+    componentsModelsDB = db["componentsmodels"]
+
+    for component in componentsList:
+        oneModel = componentsModelsDB.find_one({"_id": ObjectId(component["model"])})
+
+        if (oneModel['killFunction']):
+
+            func = getattr(allCompFunctions, oneModel['killFunction'])
+
+            ret = func([component["_id"]], compDict)
+
+def callAction(funcId, varList, db, mode, compDict, compId):
 
     functionsDB = db["functions"]
 
@@ -179,7 +203,7 @@ def callAction(funcId, varList, db, mode, compDict):
 
     func = getattr(allCompFunctions, thisFunction['name'])
 
-    ret = func(varList, compDict, mode)
+    ret = func(varList, compDict, mode, compId)
 
     return ret
     
@@ -229,6 +253,8 @@ def followRoutine(checkPool, cycleStartTime, routineDuration, db, activeRunId, c
 
     timePassed = (datetime.now() - cycleStartTime).seconds
 
+    #TODO: log read values in start and end!
+
     for node in checkPool: #Checking if event (and its actions) ended.
         event = node[0]
         actions = node[1]
@@ -239,7 +265,7 @@ def followRoutine(checkPool, cycleStartTime, routineDuration, db, activeRunId, c
         for action in actions:
             if (action['status'] == "on" and timePassed == action['end']):
                 logActionChange(action['name'], "end", timePassed, event['name'], db, activeRunId)
-                callAction(action["function"], action["varList"], db, "end", compDict)
+                callAction(action["function"], action["varList"], db, "end", compDict, action["component"])
 
     if (timePassed >= routineDuration): #Reinitializing cycle time if it ended.
         cycleStartTime = datetime.now()
@@ -255,7 +281,7 @@ def followRoutine(checkPool, cycleStartTime, routineDuration, db, activeRunId, c
         for action in actions:
             if (action['status'] == "on" and timePassed == action['start']):
                 logActionChange(action['name'], "start", timePassed, event['name'], db, activeRunId)
-                callAction(action["function"], action["varList"], db, "start", compDict)
+                callAction(action["function"], action["varList"], db, "start", compDict, action["component"])
 
     for node in checkPool: #Checking regular call actions.
         event = node[0]
@@ -265,7 +291,7 @@ def followRoutine(checkPool, cycleStartTime, routineDuration, db, activeRunId, c
             if (timePassed > action['start'] and timePassed < action['end']):
                 if (isRegularCall(action, db) and timePassed%action["frequency"] == 1):
 
-                    readValue = callAction(action["function"], action["varList"], db, "main", compDict)
+                    readValue = callAction(action["function"], action["varList"], db, "main", compDict, action["component"])
                     
                     if (action["type"] == "sensor"):
                         if (readValue != None):
@@ -299,7 +325,7 @@ def main():
 
             if (firstRoutCycle):
 
-                eventsList = getActiveRoutInfo(thisReactorId, db) #Only updates routine info after activation.
+                eventsList, thisReactor = getActiveRoutInfo(thisReactorId, db) #Only updates routine info after activation.
                 rotuineDuration = calcRoutDuration(eventsList) #TODO: Put this in server side.
                 checkPool = fillPool(eventsList, rotuineDuration)
 
@@ -310,8 +336,8 @@ def main():
 
                 startRoutine(checkPool, db, activeRunId)
 
-                componentsList = getAllComponents(thisReactorId, db)
-                compDict = initializeComponents(componentsList)
+                componentsList = getAllComponents(thisReactor, db)
+                compDict = initializeComponents(componentsList, db)
 
                 firstRoutCycle = False
 
@@ -324,7 +350,7 @@ def main():
         if (desactivationFlag): #Logs reactor desactivation if it happened.
             desactivationFlag = False
             logReactorChange(db, activeRunId, thisReactorId, cycleRelativeTime, "desactivated")
-            killComponents(compDict)
+            killComponents(componentsList, compDict, db)
 
 main()
 

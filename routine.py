@@ -182,19 +182,6 @@ def initializeComponents(componentsList, db):
 
     return compDict
 
-def killComponents(componentsList, compDict, db):
-
-    componentsModelsDB = db["componentsmodels"]
-
-    for component in componentsList:
-        oneModel = componentsModelsDB.find_one({"_id": ObjectId(component["model"])})
-
-        if (oneModel['killFunction']):
-
-            func = getattr(allCompFunctions, oneModel['killFunction'])
-
-            ret = func([component["_id"]], compDict)
-
 def callAction(funcId, varList, db, mode, compDict, compId):
 
     functionsDB = db["functions"]
@@ -305,7 +292,18 @@ def followRoutine(checkPool, cycleStartTime, routineDuration, db, activeRunId, c
 
     return cycleStartTime, timePassed
 
+def killComponents(componentsList, compDict, db):
 
+    componentsModelsDB = db["componentsmodels"]
+
+    for component in componentsList:
+        oneModel = componentsModelsDB.find_one({"_id": ObjectId(component["model"])})
+
+        if (oneModel['killFunction']):
+
+            func = getattr(allCompFunctions, oneModel['killFunction'])
+
+            ret = func([component["_id"]], compDict)
 
 
 def main():
@@ -314,7 +312,7 @@ def main():
 
     while (True): #Once started, runs forever until Rasp is turned off or the app is shut down.
 
-        firstRoutCycle = True
+        firstRoutineCycle = True
         desactivationFlag = False
         cycleRelativeTime = 0 #Counts whole seconds after last routine cycle start.
         cycleStartTime = datetime.now() #Last routine cycle start time.
@@ -323,7 +321,7 @@ def main():
 
         while (checkActive(thisReactorId, db)):
 
-            if (firstRoutCycle):
+            if (firstRoutineCycle):
 
                 eventsList, thisReactor = getActiveRoutInfo(thisReactorId, db) #Only updates routine info after activation.
                 rotuineDuration = calcRoutDuration(eventsList) #TODO: Put this in server side.
@@ -339,13 +337,11 @@ def main():
                 componentsList = getAllComponents(thisReactor, db)
                 compDict = initializeComponents(componentsList, db)
 
-                firstRoutCycle = False
+                firstRoutineCycle = False
 
-            while (checkActive(thisReactorId, db)):
+            cycleStartTime, cycleRelativeTime = followRoutine(checkPool, cycleStartTime, rotuineDuration, db, activeRunId, compDict)
 
-                cycleStartTime, cycleRelativeTime = followRoutine(checkPool, cycleStartTime, rotuineDuration, db, activeRunId, compDict)
-
-                time.sleep(1)
+            time.sleep(1)
 
         if (desactivationFlag): #Logs reactor desactivation if it happened.
             desactivationFlag = False
@@ -353,45 +349,3 @@ def main():
             killComponents(componentsList, compDict, db)
 
 main()
-
-
-
-
-
-
-def checkPause(reactorId, db):
-
-    reactorsDB = db["reactors"]
-
-    thisReactor = reactorsDB.find_one({"_id": ObjectId(reactorId)})
-
-    if (bool(thisReactor["isPaused"])):
-        return True
-    else:
-        return False
-    
-def logReacPause(db, activeRunId, thisReactorId, sec):
-    runs = db["runs"]
-    reactorsDB = db["reactors"]
-
-    thisReactor = reactorsDB.find_one({"_id": ObjectId(thisReactorId)})
-
-    now = datetime.now()
-    query = {"_id": ObjectId(activeRunId)}
-
-    update = {"$push": {"log": f"[Reactor] {thisReactor['name']} paused. [Routine time: {sec} / real time: {now.strftime('%m/%d/%Y, %H:%M:%S')}]"}}
-    runs.update_one(query, update)
-    return
-
-def logReacResume(db, activeRunId, thisReactorId):
-    runs = db["runs"]
-    reactorsDB = db["reactors"]
-
-    thisReactor = reactorsDB.find_one({"_id": ObjectId(thisReactorId)})
-
-    now = datetime.now()
-    query = {"_id": ObjectId(activeRunId)}
-
-    update = {"$push": {"log": f"[Reactor] {thisReactor['name']} resumed. [Real time: {now.strftime('%m/%d/%Y, %H:%M:%S')}]"}}
-    runs.update_one(query, update)
-    return

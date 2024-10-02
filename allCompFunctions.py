@@ -1,6 +1,8 @@
 import random
 import serial
+import MAX6675 as max
 
+# Sensor Dummy (leitura aleatória entre 0 e 10)
 def dummyIni(iniVars, componentsDict):
     print("DummyIni")
 
@@ -28,9 +30,10 @@ def dummyKill(killVars, componentsDict):
     print(str(killVars[0]) + " morto!")
 
     return
+# -------------------------------------------------
+
 
 # Medidor de Vazão de Gás, MFlow (M Lima Engenharia)
-
 def iniMLimaFlow(iniVars, componentsDict):
 
     ser = serial.Serial(
@@ -74,5 +77,31 @@ def killMLimaFlow(killVars, componentsDict):
     componentsDict[killVars[0]].close()
 
     return
+# -------------------------------------------------
+
+# Sensor de Temperatura Max6675
+def iniMax6675(iniVars, componentsDict):
+
+    CSK = 18
+    CS = 8
+    DO = 24
+
+    sensor = max.MAX6675(CSK, CS, DO)
+
+    componentsDict[iniVars[0]] = sensor
+
+    return 0
+
+def readMax6675(varList, compDict, mode, compId):
+    if (mode == "start"):
+        #Max6675 does not need a start function.
+        return None
+    elif (mode == "end"):
+        #Max6675 doen not need a end function.
+        return None
+    else:
+        temp = compDict[compId].readTempC()
+        return temp
+
 
 # -------------------------------------------------
